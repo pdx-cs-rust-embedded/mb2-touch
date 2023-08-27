@@ -8,3 +8,8 @@ measuring the time for the pad to charge through the 10MΩ
 resistor on the board until it reads high. On my board, it
 takes less than 50µs to charge with no finger, about 2.5ms
 to charge with a finger firmly planted.
+
+# License
+
+This work is licensed under the "MIT License". Please see the file
+`LICENSE.txt` in this distribution for license terms.
