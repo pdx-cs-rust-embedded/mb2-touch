@@ -22,7 +22,9 @@ fn main() -> ! {
     let mut touchpad = Touchpad::new(touch_pin, timer0);
 
     loop {
-        let count = touchpad.sense();
+        let touchpad_setup = touchpad.setup();
+        let (count, touchpad_sense) = touchpad_setup.sense();
+        touchpad = touchpad_sense;
         rprintln!("{}", count);
         timer1.delay_ms(500u16);
     }
