@@ -23,9 +23,9 @@ fn main() -> ! {
 
     loop {
         let touchpad_setup = touchpad.setup();
-        let (count, touchpad_sense) = touchpad_setup.sense();
+        let (pressed, touchpad_sense) = touchpad_setup.sense();
         touchpad = touchpad_sense;
-        rprintln!("{}", count);
+        rprintln!("{}", pressed);
         timer1.delay_ms(500u16);
     }
 }

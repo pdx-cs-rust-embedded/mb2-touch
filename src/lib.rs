@@ -34,9 +34,16 @@ impl Touchpad<TouchpadIdle> {
 
 impl Touchpad<TouchpadIdle> {
     pub fn setup(mut self) -> Touchpad<TouchpadSense> {
-        self.timer.delay_ms(10u16);
+        let mut touch_pin = self.pin.into_floating_input();
+        if !touch_pin.is_low().unwrap() {
+            let outp = touch_pin.into_push_pull_output(gpio::Level::Low);
+            self.timer.delay_ms(10u16);
+            touch_pin = outp.into_floating_input();
+            assert!(touch_pin.is_low().unwrap());
+        }
+        let pin = touch_pin.into_push_pull_output(gpio::Level::Low);
         let touchpad = Touchpad {
-            pin: self.pin,
+            pin,
             timer: self.timer,
             p: PhantomData,
         };
@@ -45,12 +52,15 @@ impl Touchpad<TouchpadIdle> {
 }
 
 impl Touchpad<TouchpadSense> {
-    pub fn sense(mut self) -> (u32, Touchpad<TouchpadIdle>) {
+    pub fn sense(mut self) -> (bool, Touchpad<TouchpadIdle>) {
         let touch_pin = self.pin.into_floating_input();
-        let mut count = 0u32;
-        while touch_pin.is_low().unwrap() {
+        let mut pressed = true;
+        for _ in 0..100  {
+            if !touch_pin.is_low().unwrap() {
+                pressed = false;
+                break;
+            }
             self.timer.delay_us(1u16);
-            count += 1;
         }
         let pin = touch_pin.into_push_pull_output(gpio::Level::Low);
         let touchpad = Touchpad {
@@ -58,6 +68,6 @@ impl Touchpad<TouchpadSense> {
             timer: self.timer,
             p: PhantomData,
         };
-        (count, touchpad)
+        (pressed, touchpad)
     }
 }
