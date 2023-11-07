@@ -4,7 +4,21 @@
 use panic_rtt_target as _;
 use microbit::hal::{prelude::*, pac, gpio, timer};
 
-pub struct Touchpad {
+pub enum TouchpadState {
+    Idle,
+    Setup,
+    Sense,
+}
+
+pub struct TouchpadIdle;
+pub struct TouchpadSetup;
+pub struct TouchpadSense;
+
+pub trait TouchpadState {}
+
+impl TouchpadState for TouchpadIdle {}
+
+pub struct Touchpad<T: TouchpadState> {
     pin: Option<gpio::p1::P1_04<gpio::Input<gpio::Floating>>>,
     timer: timer::Timer<pac::TIMER0>,
 }
