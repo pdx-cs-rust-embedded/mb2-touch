@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 cortex-m-rt = "0.7"
 microbit-v2 = "0.13.0"
-rtt-target = "0.4"
 
 [dependencies.panic-rtt-target]
 version = "0.1"
@@ -18,3 +17,6 @@ features = ["cortex-m"]
 [dependencies.cortex-m]
 version = "0.7"
 features = ["inline-asm", "critical-section-single-core"]
+
+[dev-dependencies]
+rtt-target = "0.4"

@@ -26,7 +26,7 @@ fn main() -> ! {
     let timer0 = timer::Timer::new(board.TIMER0);
     let gpiote = gpiote::Gpiote::new(board.GPIOTE);
 
-    let touchpad = Touchpad::new(touch_pin, timer0, gpiote, interrupt::SWI0_EGU0, 100);
+    let touchpad = Touchpad::new(touch_pin, timer0, gpiote, interrupt::SWI0_EGU0, 50);
     cortex_m::interrupt::free(|cs| {
         TOUCHPAD.borrow(cs).borrow_mut().replace(touchpad);
     });

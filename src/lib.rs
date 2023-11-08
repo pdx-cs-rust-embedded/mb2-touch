@@ -12,11 +12,16 @@ use microbit::hal::{
 };
 use panic_rtt_target as _;
 
+const N52_TIMER_FREQ_HZ: u32 = 64_000_000;
+const TIMER_TICKS_PER_MS: u32 = N52_TIMER_FREQ_HZ / 1_000;
+const TIMER_TICKS_PER_US: u32 = N52_TIMER_FREQ_HZ / 1_000_000;
+
 pub enum TouchpadState {
     Disabled(Pin<Input<Floating>>),
     Idle(Pin<Input<Floating>>),
     Setup(Pin<Output<PushPull>>),
     Sense(Pin<Input<Floating>>, u32),
+    SenseBackoff(Pin<Input<Floating>>),
 }
 
 impl fmt::Debug for TouchpadState {
@@ -26,6 +31,7 @@ impl fmt::Debug for TouchpadState {
             Self::Idle(_) => f.debug_tuple("Idle").finish(),
             Self::Setup(_) => f.debug_tuple("Setup").finish(),
             Self::Sense(_, arg1) => f.debug_tuple("Sense").field(arg1).finish(),
+            Self::SenseBackoff(_) => f.debug_tuple("SenseBackoff").finish(),
         }
     }
 }
@@ -47,11 +53,7 @@ impl Touchpad {
         threshold: u32,
     ) -> Self {
         let pin = pin.degrade();
-        gpiote
-            .channel0()
-            .input_pin(&pin)
-            .hi_to_lo()
-            .disable_interrupt();
+        gpiote.channel0().input_pin(&pin).disable_interrupt();
 
         let mut t = Touchpad {
             state: Some(TouchpadState::Idle(pin)),
@@ -70,28 +72,31 @@ impl Touchpad {
             TouchpadState::Idle(pin) => {
                 let pin = pin.into_push_pull_output(gpio::Level::Low);
                 self.timer.enable_interrupt();
-                self.timer.start(10000u32); // TODO correct value
+                self.timer.start(1 * TIMER_TICKS_PER_MS); // TODO correct value
                 TouchpadState::Setup(pin)
             }
             TouchpadState::Setup(pin) => {
-                self.timer.start(1u32);
+                self.timer.start(1 * TIMER_TICKS_PER_US);
                 self.timer.enable_interrupt();
                 let pin = pin.into_floating_input();
                 self.gpiote
                     .channel0()
                     .input_pin(&pin)
-                    .hi_to_lo()
+                    .lo_to_hi()
                     .enable_interrupt();
                 TouchpadState::Sense(pin, 0)
             }
             TouchpadState::Sense(pin, count) => {
-                self.timer.start(1u32);
+                self.timer.start(1 * TIMER_TICKS_PER_US);
                 self.timer.enable_interrupt();
-                TouchpadState::Sense(pin, count + 1)
+                if let Some(new_count) = count.checked_add(1) {
+                    TouchpadState::Sense(pin, new_count)
+                } else {
+                    TouchpadState::Idle(pin)
+                }
             }
             s => s,
         };
-
         self.state.replace(new_state);
     }
 
@@ -102,16 +107,24 @@ impl Touchpad {
                 self.gpiote
                     .channel0()
                     .input_pin(&pin)
+                    .lo_to_hi()
+                    .disable_interrupt()
                     .hi_to_lo()
-                    .disable_interrupt();
+                    .enable_interrupt();
+                self.timer.disable_interrupt();
                 if count > self.threshold {
                     cortex_m::peripheral::NVIC::pend(self.interrupt);
                 }
+                TouchpadState::SenseBackoff(pin)
+            }
+            TouchpadState::SenseBackoff(pin) => {
+                self.timer.enable_interrupt();
+                self.timer.start(1u32);
+                self.gpiote.channel0().input_pin(&pin).disable_interrupt();
                 TouchpadState::Idle(pin)
             }
             s => s,
         };
-
         self.state.replace(new_state);
     }
 }
