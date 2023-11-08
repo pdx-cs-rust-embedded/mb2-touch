@@ -10,7 +10,7 @@ use rtt_target::{rprintln, rtt_init_print};
 use cortex_m_rt::entry;
 use microbit::{
     board::Board,
-    hal::{gpiote, pac, timer},
+    hal::{pac, timer},
 };
 use pac::interrupt;
 
@@ -24,9 +24,8 @@ fn main() -> ! {
     let board = Board::take().unwrap();
     let touch_pin = board.pins.p1_04.into_floating_input();
     let timer0 = timer::Timer::new(board.TIMER0);
-    let gpiote = gpiote::Gpiote::new(board.GPIOTE);
 
-    let touchpad = Touchpad::new(touch_pin, timer0, gpiote, interrupt::SWI0_EGU0, 50);
+    let touchpad = Touchpad::new(touch_pin, timer0, interrupt::SWI0_EGU0, 10);
     cortex_m::interrupt::free(|cs| {
         TOUCHPAD.borrow(cs).borrow_mut().replace(touchpad);
     });
@@ -34,7 +33,6 @@ fn main() -> ! {
     // Safety: we're outside any critical sections, and are thus not messing with one
     unsafe {
         cortex_m::peripheral::NVIC::unmask(interrupt::SWI0_EGU0);
-        cortex_m::peripheral::NVIC::unmask(interrupt::GPIOTE);
         cortex_m::peripheral::NVIC::unmask(interrupt::TIMER0);
     }
 
@@ -42,15 +40,6 @@ fn main() -> ! {
         // rprintln!("Loop");
         cortex_m::asm::wfe();
     }
-}
-
-#[interrupt]
-fn GPIOTE() {
-    cortex_m::interrupt::free(|cs| {
-        if let Some(t) = TOUCHPAD.borrow(cs).borrow_mut().as_mut() {
-            t.handle_gpio_interrupt();
-        }
-    })
 }
 
 #[interrupt]
