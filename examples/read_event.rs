@@ -37,7 +37,6 @@ fn main() -> ! {
     }
 
     loop {
-        // rprintln!("Loop");
         cortex_m::asm::wfe();
     }
 }

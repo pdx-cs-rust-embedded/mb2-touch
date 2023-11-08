@@ -71,19 +71,20 @@ impl Touchpad {
                 TouchpadState::Setup(pin)
             }
             TouchpadState::Setup(pin) => {
-                self.set_alarm(1);
                 let pin = pin.into_floating_input();
+                self.set_alarm(1);
                 TouchpadState::Sense(pin, 0)
             }
             TouchpadState::Sense(pin, count) => {
                 self.set_alarm(1);
+
                 if count >= self.threshold {
                     cortex_m::peripheral::NVIC::pend(self.interrupt);
                     TouchpadState::SenseBackoff(pin)
                 } else if pin.is_low().unwrap() {
                     TouchpadState::Sense(pin, count + 1)
                 } else {
-                    TouchpadState::Idle(pin)
+                    TouchpadState::SenseBackoff(pin)
                 }
             }
             TouchpadState::SenseBackoff(pin) => {
