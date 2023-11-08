@@ -68,7 +68,10 @@ impl Touchpad {
 
     pub fn handle_timer_interrupt(&mut self) {
         self.timer.event_compare_cc0().reset();
-        let new_state = match self.state.take().unwrap() {
+        let Some(current_state) = self.state.take() else {
+            return;
+        };
+        let new_state = match current_state {
             TouchpadState::Idle(pin) => {
                 let pin = pin.into_push_pull_output(gpio::Level::Low);
                 self.timer.enable_interrupt();
@@ -102,7 +105,10 @@ impl Touchpad {
 
     pub fn handle_gpio_interrupt(&mut self) {
         self.gpiote.channel0().reset_events();
-        let new_state = match self.state.take().unwrap() {
+        let Some(current_state) = self.state.take() else {
+            return;
+        };
+        let new_state = match current_state {
             TouchpadState::Sense(pin, count) => {
                 self.gpiote
                     .channel0()

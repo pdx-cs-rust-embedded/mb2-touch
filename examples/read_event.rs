@@ -62,9 +62,9 @@ fn TIMER0() {
     })
 }
 
-static TOUCH_COUNT: AtomicU32 = AtomicU32::new(0);
 #[interrupt]
 fn SWI0_EGU0() {
+    static TOUCH_COUNT: AtomicU32 = AtomicU32::new(0);
     rprintln!(
         "Ouch! {}",
         TOUCH_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
