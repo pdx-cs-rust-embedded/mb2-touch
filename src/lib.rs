@@ -5,22 +5,22 @@
 use core::fmt;
 
 use microbit::hal::{
-    gpio::{self, p1::P1_04, Floating, Input, Output, Pin, PushPull},
+    gpio::{self, p1::P1_04, Floating, Input, Output, PushPull},
     pac,
     prelude::*,
     timer,
 };
 use panic_rtt_target as _;
 
-const N52_TIMER_FREQ_HZ: u32 = 64_000_000;
-const TIMER_TICKS_PER_US: u32 = N52_TIMER_FREQ_HZ / 1_000_000;
+type SensePin = P1_04<Input<Floating>>;
+type DischargePin = P1_04<Output<PushPull>>;
 
 pub enum TouchpadState {
-    Disabled(Pin<Input<Floating>>),
-    Idle(Pin<Input<Floating>>),
-    Setup(Pin<Output<PushPull>>),
-    Sense(Pin<Input<Floating>>, u32),
-    SenseBackoff(Pin<Input<Floating>>),
+    Disabled(SensePin),
+    Idle(SensePin),
+    Setup(DischargePin),
+    Sense(SensePin, u32),
+    SenseBackoff(SensePin),
 }
 
 impl fmt::Debug for TouchpadState {
@@ -49,8 +49,6 @@ impl Touchpad {
         interrupt: pac::Interrupt,
         threshold: u32,
     ) -> Self {
-        let pin = pin.degrade();
-
         let mut t = Touchpad {
             state: Some(TouchpadState::Idle(pin)),
             timer,
@@ -69,20 +67,16 @@ impl Touchpad {
         let new_state = match current_state {
             TouchpadState::Idle(pin) => {
                 let pin = pin.into_push_pull_output(gpio::Level::Low);
-                self.timer.enable_interrupt();
-                self.timer.start(1000 * TIMER_TICKS_PER_US);
+                self.set_alarm(1000);
                 TouchpadState::Setup(pin)
             }
             TouchpadState::Setup(pin) => {
-                self.timer.enable_interrupt();
-                self.timer.start(1 * TIMER_TICKS_PER_US);
+                self.set_alarm(1);
                 let pin = pin.into_floating_input();
                 TouchpadState::Sense(pin, 0)
             }
             TouchpadState::Sense(pin, count) => {
-                self.timer.enable_interrupt();
-                self.timer.start(1 * TIMER_TICKS_PER_US);
-
+                self.set_alarm(1);
                 if count >= self.threshold {
                     cortex_m::peripheral::NVIC::pend(self.interrupt);
                     TouchpadState::SenseBackoff(pin)
@@ -93,8 +87,7 @@ impl Touchpad {
                 }
             }
             TouchpadState::SenseBackoff(pin) => {
-                self.timer.enable_interrupt();
-                self.timer.start(1 * TIMER_TICKS_PER_US);
+                self.set_alarm(1);
                 if pin.is_high().unwrap() {
                     TouchpadState::Idle(pin)
                 } else {
@@ -104,5 +97,13 @@ impl Touchpad {
             s => s,
         };
         self.state.replace(new_state);
+    }
+
+    fn set_alarm(&mut self, micros: u32) {
+        const N52_TIMER_FREQ_HZ: u32 = 64_000_000;
+        const TIMER_TICKS_PER_US: u32 = N52_TIMER_FREQ_HZ / 1_000_000;
+
+        self.timer.enable_interrupt();
+        self.timer.start(micros * TIMER_TICKS_PER_US);
     }
 }

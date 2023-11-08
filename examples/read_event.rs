@@ -25,7 +25,7 @@ fn main() -> ! {
     let touch_pin = board.pins.p1_04.into_floating_input();
     let timer0 = timer::Timer::new(board.TIMER0);
 
-    let touchpad = Touchpad::new(touch_pin, timer0, interrupt::SWI0_EGU0, 10);
+    let touchpad = Touchpad::new(touch_pin, timer0, interrupt::SWI0_EGU0, 100);
     cortex_m::interrupt::free(|cs| {
         TOUCHPAD.borrow(cs).borrow_mut().replace(touchpad);
     });
