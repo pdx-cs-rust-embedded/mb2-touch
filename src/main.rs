@@ -14,19 +14,25 @@ use microbit::{
 fn main() -> ! {
     rtt_init_print!();
     let board = Board::take().unwrap();
-    let mut touch_pin = board.pins.p1_04.into_floating_input();
+    let mut touch_pin = board.pins.p1_04.into_push_pull_output(gpio::Level::Low);
     let mut timer = timer::Timer::new(board.TIMER0);
 
+    timer.delay_ms(500u16);
     loop {
-        let touch_pin_i = touch_pin.into_push_pull_output(gpio::Level::Low);
-        timer.delay_ms(10u16);
-        touch_pin = touch_pin_i.into_floating_input();
+        // Count the number of microseconds for the touchpad
+        // to charge to the point the GPIO pin sees it as
+        // high.
+        let touch_pin_input = touch_pin.into_floating_input();
         let mut count = 0u32;
-        while touch_pin.is_low().unwrap() {
+        while touch_pin_input.is_low().unwrap() {
             timer.delay_us(1u16);
             count += 1;
         }
         rprintln!("{}", count);
+
+        // Pull the touchpad to ground to discharge any accumulated
+        // voltage. Allow time to settle.
+        touch_pin = touch_pin_input.into_push_pull_output(gpio::Level::Low);
         timer.delay_ms(500u16);
     }
 }
