@@ -10,12 +10,22 @@ use microbit::{
     hal::{prelude::*, gpio, timer},
 };
 
+/// Minimum charging time in microseconds to regard as
+/// "touched".
+const TOUCH_THRESHOLD: usize = 100;
+
+/// Time in milliseconds to discharge the touchpad before
+/// testing.
+const DISCHARGE_TIME: u16 = 100;
+
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
     let board = Board::take().unwrap();
     let mut touch_pin = board.pins.p1_04.into_push_pull_output(gpio::Level::Low);
     let mut timer = timer::Timer::new(board.TIMER0);
+    // True for touched.
+    let mut state = false;
 
     timer.delay_ms(500u16);
     loop {
@@ -23,16 +33,25 @@ fn main() -> ! {
         // to charge to the point the GPIO pin sees it as
         // high.
         let touch_pin_input = touch_pin.into_floating_input();
-        let mut count = 0u32;
-        while touch_pin_input.is_low().unwrap() {
+        let mut new_state = true;
+        for _ in 0..TOUCH_THRESHOLD {
+            if touch_pin_input.is_high().unwrap() {
+                new_state = false;
+                break;
+            }
             timer.delay_us(1u16);
-            count += 1;
         }
-        rprintln!("{}", count);
+        if new_state != state {
+            match new_state {
+                true => rprintln!("touched"),
+                false => rprintln!("released"),
+            }
+        }
+        state = new_state;
 
         // Pull the touchpad to ground to discharge any accumulated
         // voltage. Allow time to settle.
         touch_pin = touch_pin_input.into_push_pull_output(gpio::Level::Low);
-        timer.delay_ms(500u16);
+        timer.delay_ms(DISCHARGE_TIME);
     }
 }
