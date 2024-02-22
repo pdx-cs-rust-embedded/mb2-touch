@@ -7,27 +7,33 @@ use rtt_target::{rprintln, rtt_init_print};
 use cortex_m_rt::entry;
 use microbit::{
     board::Board,
-    hal::{prelude::*, gpio, gpiote},
+    hal::{
+        gpio, gpiote,
+        pac::{self, interrupt},
+        prelude::*,
+        timer,
+    },
 };
 
 use critical_section_lock_mut::LockMut;
 
-/// Minimum charging time in microseconds to regard as
+/// Minimum charging time in milliseconds to regard as
 /// "touched".
-const TOUCH_THRESHOLD: usize = 100;
+const TOUCH_THRESHOLD: u32 = 1;
 
 /// Time in milliseconds to discharge the touchpad before
 /// testing.
-const DISCHARGE_TIME: u16 = 100;
+const DISCHARGE_TIME: u32 = 100;
 
 /// Button press and release events.
-enum TouchEvent {
-    Press(usize),
-    Release(usize),
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TouchEvent {
+    Press,
+    Release,
 }
 
 /// The touch pin may be either "writing" or "reading".
-enum TouchPin {
+pub enum TouchPin {
     /// "writing"
     Output(gpio::Pin<gpio::Output<gpio::PushPull>>),
     /// "reading"
@@ -35,38 +41,83 @@ enum TouchPin {
 }
 
 /// Touchpad state.
-struct Touchpad {
-    /// True for pressed, false for released.
-    state: bool,
+pub struct Touchpad<T> {
+    /// Currently pressed or released.
+    state: TouchEvent,
     /// Most recent touch event since last change.
     event: Option<TouchEvent>,
     /// Touch pin.
-    pin: TouchPin,
+    pin: Option<TouchPin>,
     gpiote: gpiote::Gpiote,
+    timer: timer::Timer<T>,
 }
 
-impl Touchpad {
-    fn new(
+impl<T: timer::Instance> Touchpad<T> {
+    pub fn new(
         mut pin: gpio::Pin<gpio::Output<gpio::PushPull>>,
         gpiote: gpiote::Gpiote,
+        mut timer: timer::Timer<T>,
     ) -> Self {
-        pin.set_high().unwrap();
+        pin.set_low().unwrap();
+        timer.enable_interrupt();
         Self {
-            state: false,
+            state: TouchEvent::Release,
             event: None,
-            pin: TouchPin::Output(pin),
+            pin: Some(TouchPin::Output(pin)),
             gpiote,
+            timer,
+        }
+    }
+
+    pub fn start_measurement(&mut self) {
+        let pin = match self.pin.take().unwrap() {
+            TouchPin::Output(pin) => pin,
+            TouchPin::Input(pin) => pin.into_push_pull_output(gpio::Level::Low),
+        };
+        self.pin = Some(TouchPin::Output(pin));
+        self.timer.start(DISCHARGE_TIME * 1000);
+    }
+
+    pub fn get_event(&self) -> Option<TouchEvent> {
+        self.event
+    }
+
+    pub fn clear_event(&mut self) {
+        self.event = None;
+    }
+
+    pub fn timer_interrupt(&mut self) {
+        match self.pin.take().unwrap() {
+            TouchPin::Output(pin) => {
+                let pin = pin.into_floating_input();
+                self.gpiote
+                    .channel0()
+                    .input_pin(&pin)
+                    .lo_to_hi()
+                    .enable_interrupt();
+                self.pin = Some(TouchPin::Input(pin));
+                self.timer.start(TOUCH_THRESHOLD);
+            }
+            TouchPin::Input(_) => {
+                if self.state != TouchEvent::Press {
+                    self.event = Some(TouchEvent::Press);
+                }
+                self.state = TouchEvent::Press;
+            }
         }
     }
 }
 
-static TOUCHPAD: LockMut<Touchpad> = LockMut::new();
+static TOUCHPAD: LockMut<Touchpad<pac::TIMER0>> = LockMut::new();
 
 #[interrupt]
 fn GPIOTE() {
-    TOUCHPAD.with_locked(|touchpad|) {
-        todo!()
-    }
+    TOUCHPAD.with_lock(|_touchpad| todo!());
+}
+
+#[interrupt]
+fn TIMER0() {
+    TOUCHPAD.with_lock(|touchpad| touchpad.timer_interrupt());
 }
 
 #[entry]
@@ -75,14 +126,21 @@ fn main() -> ! {
     let board = Board::take().unwrap();
     let touch_pin = board.pins.p1_04.into_push_pull_output(gpio::Level::Low);
     let gpiote = gpiote::Gpiote::new(board.GPIOTE);
-    TOUCHPAD.init(Touchpad::new(touch_pin.into(), gpiote));
+    let timer = timer::Timer::new(board.TIMER0);
+    TOUCHPAD.init(Touchpad::new(touch_pin.into(), gpiote, timer));
+    unsafe {
+        pac::NVIC::unmask(pac::Interrupt::GPIOTE);
+        pac::NVIC::unmask(pac::Interrupt::TIMER0);
+    }
+    pac::NVIC::unpend(pac::Interrupt::GPIOTE);
+    pac::NVIC::unpend(pac::Interrupt::TIMER0);
 
     loop {
-        TOUCHPAD.with_locked(|touchpad| {
+        TOUCHPAD.with_lock(|touchpad| {
             if let Some(event) = touchpad.get_event() {
                 rprintln!("{:?}", event);
                 touchpad.clear_event();
             }
-        }
+        });
     }
 }

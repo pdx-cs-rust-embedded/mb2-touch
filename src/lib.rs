@@ -1,8 +1,8 @@
 #![no_main]
 #![no_std]
 
+use microbit::hal::{gpio, pac, prelude::*, timer};
 use panic_rtt_target as _;
-use microbit::hal::{prelude::*, pac, gpio, timer};
 
 pub struct Touchpad {
     pin: Option<gpio::p1::P1_04<gpio::Input<gpio::Floating>>>,
@@ -14,7 +14,10 @@ impl Touchpad {
         pin: gpio::p1::P1_04<gpio::Input<gpio::Floating>>,
         timer: timer::Timer<pac::TIMER0>,
     ) -> Self {
-        Touchpad { pin: Some(pin), timer }
+        Touchpad {
+            pin: Some(pin),
+            timer,
+        }
     }
 
     pub fn sense(&mut self) -> u32 {
