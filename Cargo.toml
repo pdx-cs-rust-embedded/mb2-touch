@@ -8,6 +8,9 @@ cortex-m-rt = "0.7"
 microbit-v2 = "0.13.0"
 rtt-target = "0.4"
 
+[dependencies.critical-section-lock-mut]
+git = "https://github.com/pdx-cs-rust-embedded/critical-section-lock-mut"
+
 [dependencies.panic-rtt-target]
 version = "0.1"
 features = ["cortex-m"]

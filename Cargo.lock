@@ -97,6 +97,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6548a0ad5d2549e111e1f6a11a6c2e2d00ce6a3dafe22948d67c2b443f775e52"
 
 [[package]]
+name = "critical-section-lock-mut"
+version = "0.1.2"
+source = "git+https://github.com/pdx-cs-rust-embedded/critical-section-lock-mut#d9c7dbb334e22a2787d482b532bf5f52bc2422ba"
+dependencies = [
+ "critical-section 1.1.1",
+]
+
+[[package]]
 name = "crunchy"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -155,6 +163,7 @@ version = "0.1.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
+ "critical-section-lock-mut",
  "microbit-v2",
  "panic-rtt-target",
  "rtt-target 0.4.0",

@@ -7,8 +7,10 @@ use rtt_target::{rprintln, rtt_init_print};
 use cortex_m_rt::entry;
 use microbit::{
     board::Board,
-    hal::{prelude::*, gpio, timer},
+    hal::{prelude::*, gpio, gpiote},
 };
+
+use critical_section_lock_mut::LockMut;
 
 /// Minimum charging time in microseconds to regard as
 /// "touched".
@@ -18,40 +20,69 @@ const TOUCH_THRESHOLD: usize = 100;
 /// testing.
 const DISCHARGE_TIME: u16 = 100;
 
+/// Button press and release events.
+enum TouchEvent {
+    Press(usize),
+    Release(usize),
+}
+
+/// The touch pin may be either "writing" or "reading".
+enum TouchPin {
+    /// "writing"
+    Output(gpio::Pin<gpio::Output<gpio::PushPull>>),
+    /// "reading"
+    Input(gpio::Pin<gpio::Input<gpio::Floating>>),
+}
+
+/// Touchpad state.
+struct Touchpad {
+    /// True for pressed, false for released.
+    state: bool,
+    /// Most recent touch event since last change.
+    event: Option<TouchEvent>,
+    /// Touch pin.
+    pin: TouchPin,
+    gpiote: gpiote::Gpiote,
+}
+
+impl Touchpad {
+    fn new(
+        mut pin: gpio::Pin<gpio::Output<gpio::PushPull>>,
+        gpiote: gpiote::Gpiote,
+    ) -> Self {
+        pin.set_high().unwrap();
+        Self {
+            state: false,
+            event: None,
+            pin: TouchPin::Output(pin),
+            gpiote,
+        }
+    }
+}
+
+static TOUCHPAD: LockMut<Touchpad> = LockMut::new();
+
+#[interrupt]
+fn GPIOTE() {
+    TOUCHPAD.with_locked(|touchpad|) {
+        todo!()
+    }
+}
+
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
     let board = Board::take().unwrap();
-    let mut touch_pin = board.pins.p1_04.into_push_pull_output(gpio::Level::Low);
-    let mut timer = timer::Timer::new(board.TIMER0);
-    // True for touched.
-    let mut state = false;
+    let touch_pin = board.pins.p1_04.into_push_pull_output(gpio::Level::Low);
+    let gpiote = gpiote::Gpiote::new(board.GPIOTE);
+    TOUCHPAD.init(Touchpad::new(touch_pin.into(), gpiote));
 
-    timer.delay_ms(500u16);
     loop {
-        // Count the number of microseconds for the touchpad
-        // to charge to the point the GPIO pin sees it as
-        // high.
-        let touch_pin_input = touch_pin.into_floating_input();
-        let mut new_state = true;
-        for _ in 0..TOUCH_THRESHOLD {
-            if touch_pin_input.is_high().unwrap() {
-                new_state = false;
-                break;
-            }
-            timer.delay_us(1u16);
-        }
-        if new_state != state {
-            match new_state {
-                true => rprintln!("touched"),
-                false => rprintln!("released"),
+        TOUCHPAD.with_locked(|touchpad| {
+            if let Some(event) = touchpad.get_event() {
+                rprintln!("{:?}", event);
+                touchpad.clear_event();
             }
         }
-        state = new_state;
-
-        // Pull the touchpad to ground to discharge any accumulated
-        // voltage. Allow time to settle.
-        touch_pin = touch_pin_input.into_push_pull_output(gpio::Level::Low);
-        timer.delay_ms(DISCHARGE_TIME);
     }
 }
