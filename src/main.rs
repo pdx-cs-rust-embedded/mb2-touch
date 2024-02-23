@@ -48,23 +48,20 @@ pub struct Touchpad<T> {
     event: Option<TouchEvent>,
     /// Touch pin.
     pin: Option<TouchPin>,
-    gpiote: gpiote::Gpiote,
     timer: timer::Timer<T>,
 }
 
 impl<T: timer::Instance> Touchpad<T> {
     pub fn new(
-        mut pin: gpio::Pin<gpio::Output<gpio::PushPull>>,
-        gpiote: gpiote::Gpiote,
+        pin: gpio::Pin<gpio::Disconnected>,
         mut timer: timer::Timer<T>,
     ) -> Self {
-        pin.set_low().unwrap();
+        let pin = pin.into_push_pull_output(gpio::Level::Low);
         timer.enable_interrupt();
         Self {
             state: TouchEvent::Release,
             event: None,
             pin: Some(TouchPin::Output(pin)),
-            gpiote,
             timer,
         }
     }
@@ -90,11 +87,13 @@ impl<T: timer::Instance> Touchpad<T> {
         match self.pin.take().unwrap() {
             TouchPin::Output(pin) => {
                 let pin = pin.into_floating_input();
-                self.gpiote
-                    .channel0()
-                    .input_pin(&pin)
-                    .lo_to_hi()
-                    .enable_interrupt();
+                GPIOTE.with_lock(|gpiote| {
+                    gpiote
+                        .channel0()
+                        .input_pin(&pin)
+                        .lo_to_hi()
+                        .enable_interrupt();
+                });
                 self.pin = Some(TouchPin::Input(pin));
                 self.timer.start(TOUCH_THRESHOLD);
             }
@@ -109,6 +108,7 @@ impl<T: timer::Instance> Touchpad<T> {
 }
 
 static TOUCHPAD: LockMut<Touchpad<pac::TIMER0>> = LockMut::new();
+static GPIOTE: LockMut<gpiote::Gpiote> = LockMut::new();
 
 #[interrupt]
 fn GPIOTE() {
@@ -124,10 +124,10 @@ fn TIMER0() {
 fn main() -> ! {
     rtt_init_print!();
     let board = Board::take().unwrap();
-    let touch_pin = board.pins.p1_04.into_push_pull_output(gpio::Level::Low);
-    let gpiote = gpiote::Gpiote::new(board.GPIOTE);
+    let touch_pin = board.pins.p1_04.degrade();
+    GPIOTE.init(gpiote::Gpiote::new(board.GPIOTE));
     let timer = timer::Timer::new(board.TIMER0);
-    TOUCHPAD.init(Touchpad::new(touch_pin.into(), gpiote, timer));
+    TOUCHPAD.init(Touchpad::new(touch_pin.into(), timer));
     unsafe {
         pac::NVIC::unmask(pac::Interrupt::GPIOTE);
         pac::NVIC::unmask(pac::Interrupt::TIMER0);
