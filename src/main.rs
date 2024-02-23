@@ -48,12 +48,17 @@ pub struct Touchpad<T> {
     event: Option<TouchEvent>,
     /// Touch pin.
     pin: Option<TouchPin>,
+    /// GPIOTE channel for interrupts.
+    #[allow(unused)]
+    channel: usize,
+    /// Timer for measurements.
     timer: timer::Timer<T>,
 }
 
 impl<T: timer::Instance> Touchpad<T> {
     pub fn new(
         pin: gpio::Pin<gpio::Disconnected>,
+        channel: usize,
         mut timer: timer::Timer<T>,
     ) -> Self {
         let pin = pin.into_push_pull_output(gpio::Level::Low);
@@ -62,6 +67,7 @@ impl<T: timer::Instance> Touchpad<T> {
             state: TouchEvent::Release,
             event: None,
             pin: Some(TouchPin::Output(pin)),
+            channel,
             timer,
         }
     }
@@ -127,7 +133,8 @@ fn main() -> ! {
     let touch_pin = board.pins.p1_04.degrade();
     GPIOTE.init(gpiote::Gpiote::new(board.GPIOTE));
     let timer = timer::Timer::new(board.TIMER0);
-    TOUCHPAD.init(Touchpad::new(touch_pin.into(), timer));
+    let channel = 0;
+    TOUCHPAD.init(Touchpad::new(touch_pin.into(), channel, timer));
     unsafe {
         pac::NVIC::unmask(pac::Interrupt::GPIOTE);
         pac::NVIC::unmask(pac::Interrupt::TIMER0);
