@@ -5,7 +5,6 @@ use panic_rtt_target as _;
 use rtt_target::{rprintln, rtt_init_print};
 
 use cortex_m_rt::entry;
-use cortex_m::asm;
 use microbit::{
     board::Board,
     hal::{
@@ -60,10 +59,9 @@ impl<T: timer::Instance> Touchpad<T> {
     pub fn new(
         pin: gpio::Pin<gpio::Disconnected>,
         channel: usize,
-        mut timer: timer::Timer<T>,
+        timer: timer::Timer<T>,
     ) -> Self {
         let pin = pin.into_push_pull_output(gpio::Level::Low);
-        timer.enable_interrupt();
         Self {
             state: TouchEvent::Release,
             event: None,
@@ -79,6 +77,7 @@ impl<T: timer::Instance> Touchpad<T> {
             TouchPin::Input(pin) => pin.into_push_pull_output(gpio::Level::Low),
         };
         self.pin = Some(TouchPin::Output(pin));
+        self.timer.enable_interrupt();
         self.timer.start(DISCHARGE_TIME * 1000);
     }
 
@@ -93,38 +92,45 @@ impl<T: timer::Instance> Touchpad<T> {
     }
 
     pub fn timer_interrupt(&mut self) {
-        match self.pin.take().unwrap() {
-            TouchPin::Output(pin) => {
+        rprintln!("timer interrupt");
+        match self.pin.take() {
+            Some(TouchPin::Output(pin)) => {
                 // Done discharging: start measuring.
                 let pin = pin.into_floating_input();
-                GPIOTE.with_lock(|gpiote| {
-                    gpiote
-                        .channel0()
-                        .input_pin(&pin)
-                        .lo_to_hi()
-                        .enable_interrupt();
-                });
+                enable_gpiote_interrupt(self.channel, &pin);
                 self.pin = Some(TouchPin::Input(pin));
                 self.timer.start(TOUCH_THRESHOLD);
             }
-            TouchPin::Input(_) => {
+            Some(TouchPin::Input(pin)) => {
                 // Done measuring: touchpad is pressed.
                 if self.state != TouchEvent::Press {
                     self.event = Some(TouchEvent::Press);
                 }
                 self.state = TouchEvent::Press;
+                self.timer.disable_interrupt();
+                disable_gpiote_interrupt(self.channel, &pin);
+                let pin = pin.into_push_pull_output(gpio::Level::Low);
+                self.pin = Some(TouchPin::Output(pin));
             }
+            None => panic!("missing pin in timer interrupt"),
         }
     }
 
     pub fn gpiote_interrupt(&mut self) {
-        if let TouchPin::Input(pin) = self.pin.take().unwrap() {
-            if self.state != TouchEvent::Release {
-                self.event = Some(TouchEvent::Release);
+        rprintln!("gpiote interrupt");
+        match self.pin.take() {
+            Some(TouchPin::Input(pin)) => {
+                if self.state != TouchEvent::Release {
+                    self.event = Some(TouchEvent::Release);
+                }
+                self.state = TouchEvent::Release;
+                self.timer.disable_interrupt();
+                disable_gpiote_interrupt(self.channel, &pin);
+                let pin = pin.into_push_pull_output(gpio::Level::Low);
+                self.pin = Some(TouchPin::Output(pin));
             }
-            self.state = TouchEvent::Release;
-            let pin = pin.into_push_pull_output(gpio::Level::Low);
-            self.pin = Some(TouchPin::Output(pin));
+            Some(_) => panic!("unexpected gpiote interrupt"),
+            None => panic!("missing pin in gpiote interrupt"),
         }
     }
 }
@@ -135,6 +141,31 @@ static GPIOTE: LockMut<gpiote::Gpiote> = LockMut::new();
 #[interrupt]
 fn GPIOTE() {
     TOUCHPAD.with_lock(|touchpad| touchpad.gpiote_interrupt());
+}
+
+fn enable_gpiote_interrupt(
+    _channel: usize,
+    pin: &gpio::Pin<gpio::Input<gpio::Floating>>,
+) {
+    GPIOTE.with_lock(|gpiote| {
+        gpiote
+            .channel0()
+            .input_pin(pin)
+            .lo_to_hi()
+            .enable_interrupt();
+    });
+}
+
+fn disable_gpiote_interrupt(
+    _channel: usize,
+    pin: &gpio::Pin<gpio::Input<gpio::Floating>>,
+) {
+    GPIOTE.with_lock(|gpiote| {
+        gpiote
+            .channel0()
+            .input_pin(pin)
+            .disable_interrupt();
+    });
 }
 
 #[interrupt]
@@ -158,8 +189,15 @@ fn main() -> ! {
     pac::NVIC::unpend(pac::Interrupt::GPIOTE);
     pac::NVIC::unpend(pac::Interrupt::TIMER0);
 
+    let mut delay = timer::Timer::new(board.TIMER1);
     loop {
-        asm::wfe();
+        rprintln!("starting");
+        TOUCHPAD.with_lock(|touchpad| {
+            touchpad.start_measurement();
+        });
+        rprintln!("delaying");
+        delay.delay_ms(100u16);
+        rprintln!("checking");
         TOUCHPAD.with_lock(|touchpad| {
             let event = touchpad.get_event();
             rprintln!("{:?}", event);
