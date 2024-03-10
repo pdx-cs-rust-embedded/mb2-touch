@@ -23,13 +23,13 @@ const TOUCH_THRESHOLD: u32 = 100;
 
 /// Time in milliseconds to discharge the touchpad before
 /// testing.
-const DISCHARGE_TIME: u32 = 100;
+const DISCHARGE_TIME: u32 = 1000;
 
 /// Button press and release events.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TouchEvent {
-    Press,
-    Release,
+    Press(u32),
+    Release(u32),
 }
 
 /// The touch pin may be either "writing" or "reading".
@@ -63,7 +63,7 @@ impl<T: timer::Instance> Touchpad<T> {
     ) -> Self {
         let pin = pin.into_push_pull_output(gpio::Level::Low);
         Self {
-            state: TouchEvent::Release,
+            state: TouchEvent::Release(0),
             event: None,
             pin: Some(TouchPin::Output(pin)),
             channel,
@@ -72,19 +72,26 @@ impl<T: timer::Instance> Touchpad<T> {
     }
 
     pub fn start_measurement(&mut self) {
-        let pin = match self.pin.take().unwrap() {
-            TouchPin::Output(pin) => pin,
-            TouchPin::Input(pin) => pin.into_push_pull_output(gpio::Level::Low),
-        };
-        self.pin = Some(TouchPin::Output(pin));
-        self.timer.enable_interrupt();
-        self.timer.start(DISCHARGE_TIME * 1000);
+        match self.pin.take() {
+            Some(TouchPin::Output(pin)) => {
+                let pin = pin.into_floating_input();
+                disable_gpiote_interrupt(self.channel, &pin);
+                let pin = pin.into_push_pull_output(gpio::Level::Low);
+                self.pin = Some(TouchPin::Output(pin));
+                self.timer.enable_interrupt();
+                self.timer.start(DISCHARGE_TIME * 1000);
+            },
+            Some(pin) => {
+                // Already doing a measurement.
+                rprintln!("measurement already started");
+                self.pin = Some(pin);
+            }
+            None => panic!("starting measurement while uninitialized"),
+        }
     }
 
-    pub fn get_event(&mut self) -> Option<TouchEvent> {
-        let event = self.event;
-        self.clear_event();
-        event
+    pub fn get_event(&self) -> Option<TouchEvent> {
+        self.event
     }
 
     pub fn clear_event(&mut self) {
@@ -100,13 +107,15 @@ impl<T: timer::Instance> Touchpad<T> {
                 enable_gpiote_interrupt(self.channel, &pin);
                 self.pin = Some(TouchPin::Input(pin));
                 self.timer.start(TOUCH_THRESHOLD);
+                self.timer.enable_interrupt();
             }
             Some(TouchPin::Input(pin)) => {
                 // Done measuring: touchpad is pressed.
-                if self.state != TouchEvent::Press {
-                    self.event = Some(TouchEvent::Press);
+                if !matches!(self.state, TouchEvent::Press(_)) {
+                    let count = self.timer.read();
+                    self.state = TouchEvent::Press(count);
+                    self.event = Some(self.state);
                 }
-                self.state = TouchEvent::Press;
                 self.timer.disable_interrupt();
                 disable_gpiote_interrupt(self.channel, &pin);
                 let pin = pin.into_push_pull_output(gpio::Level::Low);
@@ -120,17 +129,19 @@ impl<T: timer::Instance> Touchpad<T> {
         rprintln!("gpiote interrupt");
         match self.pin.take() {
             Some(TouchPin::Input(pin)) => {
-                if self.state != TouchEvent::Release {
-                    self.event = Some(TouchEvent::Release);
+                if !matches!(self.state, TouchEvent::Release(_)) {
+                    let count = self.timer.read();
+                    self.state = TouchEvent::Release(count);
+                    self.event = Some(self.state);
                 }
-                self.state = TouchEvent::Release;
+                // self.timer.cancel().unwrap();
                 self.timer.disable_interrupt();
                 disable_gpiote_interrupt(self.channel, &pin);
                 let pin = pin.into_push_pull_output(gpio::Level::Low);
                 self.pin = Some(TouchPin::Output(pin));
             }
-            Some(_) => panic!("unexpected gpiote interrupt"),
-            None => panic!("missing pin in gpiote interrupt"),
+            Some(_) => panic!("unexpected gpio interrupt"),
+            None => panic!("missing pin in gpio interrupt"),
         }
     }
 }
@@ -148,11 +159,12 @@ fn enable_gpiote_interrupt(
     pin: &gpio::Pin<gpio::Input<gpio::Floating>>,
 ) {
     GPIOTE.with_lock(|gpiote| {
-        gpiote
-            .channel0()
+        let channel = gpiote.channel0();
+        channel
             .input_pin(pin)
             .lo_to_hi()
             .enable_interrupt();
+        channel.reset_events();
     });
 }
 
@@ -161,10 +173,11 @@ fn disable_gpiote_interrupt(
     pin: &gpio::Pin<gpio::Input<gpio::Floating>>,
 ) {
     GPIOTE.with_lock(|gpiote| {
-        gpiote
-            .channel0()
+        let channel = gpiote.channel0();
+        channel
             .input_pin(pin)
             .disable_interrupt();
+        channel.reset_events();
     });
 }
 
@@ -196,11 +209,13 @@ fn main() -> ! {
             touchpad.start_measurement();
         });
         rprintln!("delaying");
-        delay.delay_ms(100u16);
+        delay.delay_ms(3000u16);
         rprintln!("checking");
         TOUCHPAD.with_lock(|touchpad| {
-            let event = touchpad.get_event();
-            rprintln!("{:?}", event);
+            if let Some(event) = touchpad.get_event() {
+                rprintln!("{:?}", event);
+                touchpad.clear_event();
+            }
         });
     }
 }
