@@ -1,16 +1,14 @@
 [package]
 name = "mb2-touch"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 cortex-m-rt = "0.7"
-microbit-v2 = "0.13.0"
-rtt-target = "0.4"
-
-[dependencies.panic-rtt-target]
-version = "0.1"
-features = ["cortex-m"]
+microbit-v2 = "0.15.1"
+rtt-target = "0.6"
+panic-rtt-target = "0.2"
+embedded-hal = "1.0.0"
 
 # This works around old versions in the `microbit-v2`
 # crate. You don't have to use this crate, just linking

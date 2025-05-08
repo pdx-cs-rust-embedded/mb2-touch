@@ -2,7 +2,8 @@
 #![no_std]
 
 use panic_rtt_target as _;
-use microbit::hal::{prelude::*, pac, gpio, timer};
+use embedded_hal::{delay::DelayNs, digital::InputPin};
+use microbit::hal::gpio;
 
 pub struct Touchpad {
     pin: Option<gpio::p1::P1_04<gpio::Input<gpio::Floating>>>,
@@ -20,11 +21,11 @@ impl Touchpad {
     pub fn sense(&mut self) -> u32 {
         let pin = self.pin.take().unwrap();
         let touch_pin = pin.into_push_pull_output(gpio::Level::Low);
-        self.timer.delay_ms(10u16);
-        let touch_pin = touch_pin.into_floating_input();
+        self.timer.delay_ms(10);
+        let mut touch_pin = touch_pin.into_floating_input();
         let mut count = 0u32;
         while touch_pin.is_low().unwrap() {
-            self.timer.delay_us(1u16);
+            self.timer.delay_us(1);
             count += 1;
         }
         self.pin = Some(touch_pin);

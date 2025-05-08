@@ -5,10 +5,8 @@ use panic_rtt_target as _;
 use rtt_target::{rprintln, rtt_init_print};
 
 use cortex_m_rt::entry;
-use microbit::{
-    board::Board,
-    hal::{prelude::*, timer},
-};
+use embedded_hal::delay::DelayNs;
+use microbit::{board::Board, hal::timer};
 
 use mb2_touch::*;
 
@@ -24,6 +22,6 @@ fn main() -> ! {
     loop {
         let count = touchpad.sense();
         rprintln!("{}", count);
-        timer1.delay_ms(500u16);
+        timer1.delay_ms(500);
     }
 }
