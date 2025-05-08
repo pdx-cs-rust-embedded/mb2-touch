@@ -5,15 +5,15 @@ use panic_rtt_target as _;
 use embedded_hal::{delay::DelayNs, digital::InputPin};
 use microbit::hal::gpio;
 
-pub struct Touchpad {
+pub struct Touchpad<T> {
     pin: Option<gpio::p1::P1_04<gpio::Input<gpio::Floating>>>,
-    timer: timer::Timer<pac::TIMER0>,
+    timer: T,
 }
 
-impl Touchpad {
+impl<T: DelayNs> Touchpad<T> {
     pub fn new(
         pin: gpio::p1::P1_04<gpio::Input<gpio::Floating>>,
-        timer: timer::Timer<pac::TIMER0>,
+        timer: T,
     ) -> Self {
         Touchpad { pin: Some(pin), timer }
     }
