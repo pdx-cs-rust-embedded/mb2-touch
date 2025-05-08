@@ -17,10 +17,10 @@ fn main() -> ! {
     let touch_pin = board.pins.p1_04.into_floating_input();
     let timer0 = timer::Timer::new(board.TIMER0);
     let mut timer1 = timer::Timer::new(board.TIMER1);
-    let mut touchpad = Touchpad::new(touch_pin, timer0);
+    let mut touchpad = Touchpad::new(touch_pin.degrade(), timer0);
 
     loop {
-        let count = touchpad.sense();
+        let count = touchpad.sense(200);
         rprintln!("{}", count);
         timer1.delay_ms(500);
     }
